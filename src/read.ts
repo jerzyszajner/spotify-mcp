@@ -1,7 +1,55 @@
 import type { MaxInt } from '@spotify/web-api-ts-sdk';
 import { z } from 'zod';
 import type { SpotifyHandlerExtra, SpotifyTrack, tool } from './types.js';
-import { formatDuration, handleSpotifyRequest } from './utils.js';
+import {
+  errorIndicatesHttpStatus,
+  formatDuration,
+  getSavedOAuthScopes,
+  handleSpotifyRequest,
+} from './utils.js';
+
+/** GET /playlists/{id}/items may use `item` instead of `track` per Spotify field renames. */
+type PlaylistItemRow = { track?: unknown; item?: unknown };
+
+function playlistRowsForDisplay(data: { items?: PlaylistItemRow[] }) {
+  return (data.items ?? []).map((row) => ({
+    track: row.track ?? row.item,
+  }));
+}
+
+/**
+ * GET /me/playlists returns simplified playlists. Spotify historically put
+ * track count on `tracks.total`; newer responses may use `items.total` (field
+ * rename). When both are missing, do not show 0 — that misleads models.
+ */
+function trackTotalFromPlaylistListItem(playlist: {
+  tracks?: { total?: number } | null;
+  items?: { total?: number } | null;
+}): number | undefined {
+  const fromTracks = playlist.tracks?.total;
+  if (typeof fromTracks === 'number') return fromTracks;
+  const fromItems = playlist.items?.total;
+  if (typeof fromItems === 'number') return fromItems;
+  return undefined;
+}
+
+function playlistTracksForbiddenHelp(): string {
+  const scopes = getSavedOAuthScopes();
+  const scopeLine = scopes
+    ? `Last saved token scopes: ${scopes}`
+    : 'No scopes string in spotify-config.json yet — run `npm run auth` once to store them.';
+  return [
+    'Spotify returned 403 Forbidden when reading playlist tracks.',
+    '',
+    'Most often this is not a missing OAuth scope. Spotify Web API only allows listing tracks for playlists you own or collaborate on. A playlist can appear in your library because you follow it, but if you are not the owner or a collaborator, third-party apps get 403 for track listing (GET /playlists/{id}/items). Reconnecting Spotify in Claude Settings → Connectors does not change that rule.',
+    '',
+    'What to try:',
+    '• If the playlist is yours or you are a collaborator: run npm run auth in this repo, approve permissions, restart the MCP server, and retry.',
+    '• If you only follow someone else’s playlist: open it in the Spotify app, or copy tracks into a playlist you own, then fetch that playlist’s ID.',
+    '',
+    scopeLine,
+  ].join('\n');
+}
 
 function isTrack(item: any): item is SpotifyTrack {
   return (
@@ -197,7 +245,8 @@ const getUserPlaylists: tool<{
   limit: z.ZodOptional<z.ZodNumber>;
 }> = {
   name: 'getUserPlaylists',
-  description: "Get a list of the current user's playlists on Spotify",
+  description:
+    "List the current user's playlists (names and IDs). Track counts in this summary may be omitted by Spotify; use getPlaylistTracks(playlistId) for the real track list.",
   schema: {
     limit: z
       .number()
@@ -228,10 +277,12 @@ const getUserPlaylists: tool<{
 
     const formattedPlaylists = playlists.items
       .map((playlist, i) => {
-        const tracksTotal = playlist.tracks?.total ? playlist.tracks.total : 0;
-        return `${i + 1}. "${playlist.name}" (${tracksTotal} tracks) - ID: ${
-          playlist.id
-        }`;
+        const n = trackTotalFromPlaylistListItem(playlist);
+        const countPart =
+          n === undefined
+            ? 'track count not provided here — use getPlaylistTracks with this ID'
+            : `${n} track${n === 1 ? '' : 's'}`;
+        return `${i + 1}. "${playlist.name}" (${countPart}) - ID: ${playlist.id}`;
       })
       .join('\n');
 
@@ -239,7 +290,7 @@ const getUserPlaylists: tool<{
       content: [
         {
           type: 'text',
-          text: `# Your Spotify Playlists\n\n${formattedPlaylists}`,
+          text: `# Your Spotify Playlists\n\n${formattedPlaylists}\n\nNote: Spotify often omits or zeroes list metadata for this endpoint; non-zero counts are best-effort. To list songs, call getPlaylistTracks for each playlist ID.`,
         },
       ],
     };
@@ -252,15 +303,18 @@ const getPlaylistTracks: tool<{
   offset: z.ZodOptional<z.ZodNumber>;
 }> = {
   name: 'getPlaylistTracks',
-  description: 'Get a list of tracks in a Spotify playlist',
+  description:
+    'List tracks in a Spotify playlist. Only works for playlists the current user owns or collaborates on; followed-but-not-owned playlists may return 403 (Spotify Web API restriction, not a scope bug).',
   schema: {
     playlistId: z.string().describe('The Spotify ID of the playlist'),
     limit: z
       .number()
       .min(1)
-      .max(50)
+      .max(100)
       .optional()
-      .describe('Maximum number of tracks to return (1-50)'),
+      .describe(
+        'Maximum number of tracks to return per page (1-100, Spotify API max)',
+      ),
     offset: z
       .number()
       .min(0)
@@ -269,19 +323,68 @@ const getPlaylistTracks: tool<{
       .describe('The index of the first item to return. Defaults to 0'),
   },
   handler: async (args, extra: SpotifyHandlerExtra) => {
-    const { playlistId, limit = 50, offset = 0 } = args;
+    const { playlistId, limit = 100, offset = 0 } = args;
 
-    const playlistTracks = await handleSpotifyRequest(async (spotifyApi) => {
-      return await spotifyApi.playlists.getPlaylistItems(
-        playlistId,
-        undefined,
-        undefined,
-        limit as MaxInt<50>,
-        offset,
-      );
-    });
+    let playlistTracks: { items?: PlaylistItemRow[] };
+    try {
+      playlistTracks = await handleSpotifyRequest(async (spotifyApi) => {
+        const qs = new URLSearchParams({
+          limit: String(limit),
+          offset: String(offset),
+        });
+        try {
+          return await spotifyApi.makeRequest<{ items?: PlaylistItemRow[] }>(
+            'GET',
+            `playlists/${playlistId}/items?${qs}`,
+          );
+        } catch (first: unknown) {
+          const status =
+            first && typeof first === 'object' && 'status' in first
+              ? (first as { status?: number }).status
+              : undefined;
+          if (status === 404) {
+            // `getPlaylistItems` limit is typed as MaxInt<50>; value may be up to 100 at runtime (API max).
+            return await spotifyApi.playlists.getPlaylistItems(
+              playlistId,
+              undefined,
+              undefined,
+              limit as MaxInt<50>,
+              offset,
+            );
+          }
+          if (errorIndicatesHttpStatus(first, 403)) {
+            try {
+              return await spotifyApi.playlists.getPlaylistItems(
+                playlistId,
+                undefined,
+                undefined,
+                limit as MaxInt<50>,
+                offset,
+              );
+            } catch {
+              throw first;
+            }
+          }
+          throw first;
+        }
+      });
+    } catch (error: unknown) {
+      if (errorIndicatesHttpStatus(error, 403)) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: playlistTracksForbiddenHelp(),
+            },
+          ],
+        };
+      }
+      throw error;
+    }
 
-    if ((playlistTracks.items?.length ?? 0) === 0) {
+    const rows = playlistRowsForDisplay(playlistTracks);
+
+    if (rows.length === 0) {
       return {
         content: [
           {
@@ -292,7 +395,7 @@ const getPlaylistTracks: tool<{
       };
     }
 
-    const formattedTracks = playlistTracks.items
+    const formattedTracks = rows
       .map((item, i) => {
         const { track } = item;
         if (!track) return `${i + 1}. [Removed track]`;
@@ -436,8 +539,8 @@ const getFollowedArtists: tool<{
 };
 
 const getUserTopItems: tool<{
-  type: z.ZodString;
-  time_range: z.ZodString;
+  type: z.ZodEnum<['artists', 'tracks']>;
+  time_range: z.ZodEnum<['short_term', 'medium_term', 'long_term']>;
   limit: z.ZodOptional<z.ZodNumber>;
   offset: z.ZodOptional<z.ZodNumber>;
 }> = {
@@ -445,15 +548,11 @@ const getUserTopItems: tool<{
   description: "Get a list of the user's top artists or tracks",
   schema: {
     type: z
-      .string()
-      .describe(
-        'The type of items to get top for. Must be "artists" or "tracks"',
-      ),
+      .enum(['artists', 'tracks'])
+      .describe('Whether to return top artists or top tracks'),
     time_range: z
-      .string()
-      .describe(
-        'The time range for the top items. Must be "short_term", "medium_term", or "long_term"',
-      ),
+      .enum(['short_term', 'medium_term', 'long_term'])
+      .describe('Time window: last ~4 weeks, ~6 months, or several years'),
     limit: z
       .number()
       .min(1)
@@ -470,8 +569,8 @@ const getUserTopItems: tool<{
 
     const topItems = await handleSpotifyRequest(async (spotifyApi) => {
       return await spotifyApi.currentUser.topItems(
-        type as 'artists' | 'tracks',
-        time_range as 'short_term' | 'medium_term' | 'long_term',
+        type,
+        time_range,
         limit as MaxInt<50>,
         offset,
       );
