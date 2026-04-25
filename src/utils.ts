@@ -1,4 +1,5 @@
 import { SpotifyApi } from '@spotify/web-api-ts-sdk';
+import type { IResponseDeserializer } from '@spotify/web-api-ts-sdk';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -15,6 +16,8 @@ export interface SpotifyConfig {
   accessToken?: string;
   refreshToken?: string;
   accessTokenExpiresAt?: number; // unix ms timestamp
+  /** Space-separated scopes from the last token exchange or refresh (optional). */
+  scope?: string;
 }
 
 function loadSpotifyConfig(): SpotifyConfig {
@@ -50,13 +53,50 @@ function saveSpotifyConfig(config: SpotifyConfig): void {
 }
 
 let cachedSpotifyApi: SpotifyApi | null = null;
+/** Access token string used to build `cachedSpotifyApi` (invalidates when disk config changes). */
+let cachedAccessToken: string | undefined = undefined;
+
+export function clearSpotifyApiCache(): void {
+  cachedSpotifyApi = null;
+  cachedAccessToken = undefined;
+}
+
+/**
+ * Spotify player PUTs often succeed with 204 (handled in SDK) or occasionally
+ * 2xx + non-JSON body; default deserializer then throws. Official API docs:
+ * e.g. pause returns "204 — No content returned upon success."
+ */
+const spotifyLenientDeserializer: IResponseDeserializer = {
+  async deserialize<TReturnType>(response: Response): Promise<TReturnType> {
+    const text = await response.text();
+    if (text.length === 0) {
+      return null as TReturnType;
+    }
+    try {
+      return JSON.parse(text) as TReturnType;
+    } catch {
+      if (response.ok) {
+        return null as TReturnType;
+      }
+      throw new Error(
+        `Spotify returned non-JSON body (HTTP ${response.status}): ${text.slice(0, 200)}`,
+      );
+    }
+  },
+};
 
 function createSpotifyApi(): SpotifyApi {
-  if (cachedSpotifyApi) {
+  const config = loadSpotifyConfig();
+
+  if (
+    cachedSpotifyApi &&
+    config.accessToken &&
+    config.accessToken === cachedAccessToken
+  ) {
     return cachedSpotifyApi;
   }
 
-  const config = loadSpotifyConfig();
+  clearSpotifyApiCache();
 
   if (config.accessToken && config.refreshToken) {
     // Check expiry (allow 1 min clock skew)
@@ -74,7 +114,12 @@ function createSpotifyApi(): SpotifyApi {
       expires_in: 3600,
       refresh_token: config.refreshToken,
     };
-    cachedSpotifyApi = SpotifyApi.withAccessToken(config.clientId, accessToken);
+    cachedSpotifyApi = SpotifyApi.withAccessToken(
+      config.clientId,
+      accessToken,
+      { deserializer: spotifyLenientDeserializer },
+    );
+    cachedAccessToken = config.accessToken;
     return cachedSpotifyApi;
   }
 
@@ -115,7 +160,12 @@ async function exchangeCodeForToken(
   code: string,
   config: SpotifyConfig,
   codeVerifier: string,
-): Promise<{ access_token: string; refresh_token: string }> {
+): Promise<{
+  access_token: string;
+  refresh_token: string;
+  expires_in: number;
+  scope?: string;
+}> {
   const tokenUrl = 'https://accounts.spotify.com/api/token';
   const params = new URLSearchParams();
   params.append('grant_type', 'authorization_code');
@@ -143,6 +193,11 @@ async function exchangeCodeForToken(
   return {
     access_token: data.access_token,
     refresh_token: data.refresh_token,
+    expires_in:
+      typeof data.expires_in === 'number' && Number.isFinite(data.expires_in)
+        ? data.expires_in
+        : 3600,
+    scope: typeof data.scope === 'string' ? data.scope : undefined,
   };
 }
 
@@ -176,13 +231,13 @@ export async function authorizeSpotify(): Promise<void> {
   const scopes = [
     'playlist-modify-private',
     'playlist-modify-public',
+    'playlist-read-collaborative',
     'playlist-read-private',
-    'user-follow-read',
-    'user-library-modify',
     'user-library-read',
+    'user-library-modify',
+    'user-follow-read',
     'user-modify-playback-state',
     'user-read-currently-playing',
-    'user-read-email',
     'user-read-playback-state',
     'user-read-private',
     'user-read-recently-played',
@@ -257,6 +312,11 @@ export async function authorizeSpotify(): Promise<void> {
           );
           config.accessToken = tokenData.access_token;
           config.refreshToken = tokenData.refresh_token;
+          config.accessTokenExpiresAt =
+            Date.now() + tokenData.expires_in * 1000;
+          if (tokenData.scope) {
+            config.scope = tokenData.scope;
+          }
           saveSpotifyConfig(config);
           res.end(
             '<html><body><h1>Authentication Successful!</h1><p>You can now close this window and return to the application.</p></body></html>',
@@ -338,6 +398,9 @@ async function refreshAccessToken(
   config.accessToken = data.access_token;
   // Spotify may or may not return a new refresh token
   if (data.refresh_token) config.refreshToken = data.refresh_token;
+  if (typeof data.scope === 'string' && data.scope.length > 0) {
+    config.scope = data.scope;
+  }
   // Set new expiry (1 hour from now)
   config.accessTokenExpiresAt =
     Date.now() + (data.expires_in ? data.expires_in * 1000 : 3600 * 1000);
@@ -345,10 +408,46 @@ async function refreshAccessToken(
   return config;
 }
 
+/** OAuth scopes last saved with the token (for diagnostics). */
+export function getSavedOAuthScopes(): string | undefined {
+  try {
+    return loadSpotifyConfig().scope;
+  } catch {
+    return undefined;
+  }
+}
+
 export function formatDuration(ms: number): string {
   const minutes = Math.floor(ms / 60000);
   const seconds = ((ms % 60000) / 1000).toFixed(0);
   return `${minutes}:${seconds.padStart(2, '0')}`;
+}
+
+/**
+ * `@spotify/web-api-ts-sdk` throws plain `Error` for HTTP errors; the JSON body
+ * is only in the message (e.g. `"status" : 403`). Use this instead of `error.status`.
+ */
+/** One-line text for tool handlers (shared by write and player). */
+export function formatToolActionFailure(action: string, err: unknown): string {
+  return `${action} failed: ${
+    err instanceof Error ? err.message : String(err)
+  }`;
+}
+
+export function errorIndicatesHttpStatus(
+  error: unknown,
+  status: number,
+): boolean {
+  if (
+    error &&
+    typeof error === 'object' &&
+    'status' in error &&
+    (error as { status: unknown }).status === status
+  ) {
+    return true;
+  }
+  const msg = error instanceof Error ? error.message : String(error);
+  return new RegExp(`"status"\\s*:\\s*${status}`, 'i').test(msg);
 }
 
 export async function handleSpotifyRequest<T>(
@@ -370,20 +469,21 @@ export async function handleSpotifyRequest<T>(
     // If 401, try refresh once
     if (error?.status === 401 || /401|unauthorized/i.test(error?.message)) {
       config = await refreshAccessToken(config);
-      cachedSpotifyApi = null;
+      clearSpotifyApiCache();
       spotifyApi = createSpotifyApi();
       return await action(spotifyApi);
     }
-    // Skip JSON parsing errors as these are actually successful operations
     const errorMessage = error instanceof Error ? error.message : String(error);
     if (
       errorMessage.includes('Unexpected token') ||
       errorMessage.includes('Unexpected non-whitespace character') ||
       errorMessage.includes('Exponent part is missing a number in JSON')
     ) {
-      return undefined as T;
+      throw new Error(
+        `Spotify response could not be parsed as JSON; the request may or may not have completed in the Spotify app. ${errorMessage}`,
+        { cause: error },
+      );
     }
-    // Rethrow other errors
     throw error;
   }
 }

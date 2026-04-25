@@ -22,12 +22,14 @@ export type tool<Args extends z.ZodRawShape> = {
         content: Array<{
           type: 'text';
           text: string;
+          isError?: boolean;
         }>;
       }>
     | {
         content: Array<{
           type: 'text';
           text: string;
+          isError?: boolean;
         }>;
       };
 };

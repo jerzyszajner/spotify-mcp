@@ -3,17 +3,26 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { playTools } from './player.js';
 import { readTools } from './read.js';
 import { writeTools } from './write.js';
+import { clearSpotifyApiCache } from './utils.js';
 
 const server = new McpServer({
   name: 'spotify-controller',
-  version: '1.0.0',
+  version: '1.2.0',
 });
 
 [...playTools, ...readTools, ...writeTools].forEach((tool) => {
-  server.tool(tool.name, tool.description, tool.schema, tool.handler);
+  server.registerTool(
+    tool.name,
+    {
+      description: tool.description,
+      inputSchema: tool.schema,
+    },
+    tool.handler,
+  );
 });
 
 async function main() {
+  clearSpotifyApiCache();
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }
