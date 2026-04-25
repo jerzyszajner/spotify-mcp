@@ -9,6 +9,8 @@
 <h1>Spotify MCP Node Server</h1>
 </div>
 
+<p align="center"><em>Maintained fork of <a href="https://github.com/igorgarbuz/spotify-mcp">igorgarbuz/spotify-mcp</a> (Igor Garbuz).</em></p>
+
 A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) Node server that enables AI assistants like [Claude Desktop](https://claude.ai/download), or IDEs like [Cursor](https://cursor.sh) and [Windsurf](https://windsurf.io) to control Spotify playback and manage playlists. Great for music discovery and creative playlist curation. Try asking Claude for some less-known tracks in a genre or similar to an artist. You can start by asking to create a new playlist or update an existing playlist.
 
 For an easiest quickstart, as of May 2025 the [Claude Desktop](https://claude.ai/download) is the recommended way to use this software. Install Claude Desktop for your platform and follow the [integration guide](#integrating-with-ai-assistants) below.
@@ -24,19 +26,21 @@ To comply with Spotify’s Developer Terms, you must have a Spotify Premium acco
   - [Play / Create Operations](#play--create-operations)
 - [Setup](#setup)
   - [Prerequisites](#prerequisites)
-  - [Installation](#installation)
+  - [MCP Server Installation](#mcp-server-installation)
   - [Creating a Spotify Developer Application](#creating-a-spotify-developer-application)
   - [Spotify API Configuration](#spotify-api-configuration)
   - [Authentication Process](#authentication-process)
 - [Integrating with AI assistants](#integrating-with-ai-assistants)
+- [Credits](#credits)
 </details>
 
 ## Example Interactions
 
 - _"Play The Beatles less known bootlegs"_
 - _"Make a fusion playlist of The Beatles and Metallica"_
-- _"What are the audio features of the track 'Bohemian Rhapsody' by Queen?"_
+- _"List my top tracks for the last month and add three of them to a new playlist"_
 - _"Create my marathon playlist and add tracks from my workout playlists"_
+- _"Add the song that’s playing to my Liked Songs"_
 
 ## Tools
 
@@ -44,59 +48,45 @@ To comply with Spotify’s Developer Terms, you must have a Spotify Premium acco
 <summary>Read Operations</summary>
 
 1. **searchSpotify**
-
-   - **Description**: Search for tracks, albums, artists, or playlists on Spotify
+   - **Description**: Search for tracks, albums, or playlists on Spotify (search query can still include artist/field filters in `query` per Spotify’s search syntax).
    - **Parameters**:
-     - `query` (string): The search term
-     - `type` (string): Type of item to search for (track, album, artist, playlist)
-     - `limit` (number, optional): Maximum number of results to return (10-50)
-   - **Returns**: List of matching items with their IDs, names, and additional details
-   - **Example**: `searchSpotify("bohemian rhapsody", "track", 20)`
+     - `query` (string): The search string (see tool description in code for field filters, e.g. `artist:`, `year:`, `tag:hipster`).
+     - `type` (string): `track` | `album` | `playlist` (required).
+     - `limit` (number, optional): Maximum number of results (1–50).
+     - `offset` (number, optional): Pagination index (0–1000).
+   - **Returns**: A formatted list of results with IDs.
+   - **Example**: `searchSpotify({ query: "bohemian rhapsody", type: "track", limit: 20 })`
 
 2. **getNowPlaying**
-
    - **Description**: Get information about the currently playing track on Spotify
    - **Parameters**: None
-   - **Returns**: Object containing track name, artist, album, playback progress, duration, and playback state
+   - **Returns**: Plain text (and lightweight Markdown) with track, artist, album, progress, duration, and id — not a JSON object.
    - **Example**: `getNowPlaying()`
 
 3. **getUserPlaylists**
-
-   - **Description**: Get a list of the current user's playlists on Spotify
+   - **Description**: List the current user’s playlists (names, IDs, best-effort track counts).
    - **Parameters**:
-     - `limit` (number, optional): Maximum number of playlists to return (default: 20)
-     - `offset` (number, optional): Index of the first playlist to return (default: 0)
-   - **Returns**: Array of playlists with their IDs, names, track counts, and public status
-   - **Example**: `getUserPlaylists(10, 0)`
+     - `limit` (number, optional): Maximum number of playlists to return (1–50, default 50).
+   - **Returns**: Formatted text; use `getPlaylistTracks(playlistId)` to list songs in a specific playlist.
+   - **Example**: `getUserPlaylists({ limit: 20 })`
 
 4. **getPlaylistTracks**
-
-   - **Description**: Get a list of tracks in a specific Spotify playlist
+   - **Description**: List tracks in a playlist (for playlists you own or collaborate on; other playlists may return 403 from Spotify’s API).
    - **Parameters**:
      - `playlistId` (string): The Spotify ID of the playlist
-     - `limit` (number, optional): Maximum number of tracks to return (default: 100)
-     - `offset` (number, optional): Index of the first track to return (default: 0)
-   - **Returns**: Array of tracks with their IDs, names, artists, album, duration, and added date
-   - **Example**: `getPlaylistTracks("37i9dQZEVXcJZyENOWUFo7")`
+     - `limit` (number, optional): Page size 1–100 (default 100; repeat with `offset` for long lists; Spotify’s API max is 100 per request).
+     - `offset` (number, optional): First track index to return.
+   - **Returns**: A formatted list of track titles, artists, and IDs
+   - **Example**: `getPlaylistTracks({ playlistId: "37i9dQZEVXcJZyENOWUFo7", limit: 100, offset: 0 })`
 
 5. **getRecentlyPlayed**
-
    - **Description**: Retrieves a list of recently played tracks from Spotify.
    - **Parameters**:
-     - `limit` (number, optional): A number specifying the maximum number of tracks to return.
+     - `limit` (number, optional): Maximum number of tracks to return (1–50).
    - **Returns**: If tracks are found it returns a formatted list of recently played tracks else a message stating: "You don't have any recently played tracks on Spotify".
    - **Example**: `getRecentlyPlayed({ limit: 10 })`
 
-6. **getRecentlyPlayed**
-
-   - **Description**: Retrieves a list of recently played tracks from Spotify.
-   - **Parameters**:
-     - `limit` (number, optional): A number specifying the maximum number of tracks to return.
-   - **Returns**: If tracks are found it returns a formatted list of recently played tracks else a message stating: "You don't have any recently played tracks on Spotify".
-   - **Example**: `getRecentlyPlayed({ limit: 10 })`
-
-7. **getFollowedArtists**
-
+6. **getFollowedArtists**
    - **Description**: Retrieves a list of artists the user is following on Spotify.
    - **Parameters**:
      - `after` (string, optional): The last artist ID from the previous request. Cursor for pagination.
@@ -104,18 +94,15 @@ To comply with Spotify’s Developer Terms, you must have a Spotify Premium acco
    - **Returns**: If artists are found it returns a formatted list of followed artists else a message stating: "You don't follow any artists on Spotify".
    - **Example**: `getFollowedArtists({ limit: 10 })`
 
-8. **getUserTopItems**
-
+7. **getUserTopItems**
    - **Description**: Retrieves a list of the user's top artists or tracks.
    - **Parameters**:
-     - `type` (string): The type of items to get top for. Must be "artists" or "tracks".
-     - `time_range` (string): The time range for the top items. Must be "short_term", "medium_term", or "long_term".
+     - `type` (string): `artists` or `tracks` (validated).
+     - `time_range` (string): `short_term`, `medium_term`, or `long_term` (validated).
      - `limit` (number, optional): Maximum number of items to return (1-50).
      - `offset` (number, optional): Index of the first item to return. Defaults to 0.
    - **Returns**: If items are found it returns a formatted list of top items else a message stating: "You don't have any top items on Spotify".
    - **Example**: `getUserTopItems({ type: "artists", time_range: "short_term", limit: 10 })`
-
-
 
 </details>
 
@@ -123,72 +110,66 @@ To comply with Spotify’s Developer Terms, you must have a Spotify Premium acco
 <summary>Play / Create Operations</summary>
 
 1. **playMusic**
-
-   - **Description**: Start playing a track, album, artist, or playlist on Spotify
+   - **Description**: Start or resume playing a track, album, artist, or playlist.
    - **Parameters**:
-     - `uri` (string, optional): Spotify URI of the item to play (overrides type and id)
-     - `type` (string, optional): Type of item to play (track, album, artist, playlist)
-     - `id` (string, optional): Spotify ID of the item to play
-     - `deviceId` (string, optional): ID of the device to play on
-   - **Returns**: Success status
-   - **Example**: `playMusic({ uri: "spotify:track:6rqhFgbbKwnb9MLmUQDhG6" })`
-   - **Alternative**: `playMusic({ type: "track", id: "6rqhFgbbKwnb9MLmUQDhG6" })`
+     - `uri` (string, optional): Full Spotify URI. The server infers the item type from `spotify:track:...`, `spotify:album:...`, `spotify:artist:...`, or `spotify:playlist:...`.
+     - `type` (string, optional): `track` | `album` | `artist` | `playlist` (use with `id`, unless you pass `uri`)
+     - `id` (string, optional): Spotify item ID
+     - `deviceId` (string, optional): Target device
+   - **Example**: `playMusic({ uri: "spotify:track:6rqhFgbbKwnb9MLmUQDhG6" })` or `playMusic({ type: "track", id: "6rqhFgbbKwnb9MLmUQDhG6" })`
 
-2. **pausePlayback**
-
-   - **Description**: Pause the currently playing track on Spotify
+2. **playbackAction**
+   - **Description**: All basic transport controls in one tool (replaces separate pause / skip tools).
    - **Parameters**:
-     - `deviceId` (string, optional): ID of the device to pause
-   - **Returns**: Success status
-   - **Example**: `pausePlayback()`
-
-3. **skipToNext**
-
-   - **Description**: Skip to the next track in the current playback queue
-   - **Parameters**:
+     - `action` (string): `pause` | `resume` | `skipToNext` | `skipToPrevious`
      - `deviceId` (string, optional): ID of the device
-   - **Returns**: Success status
-   - **Example**: `skipToNext()`
+   - **Example**: `playbackAction({ action: "pause" })` · `playbackAction({ action: "skipToNext" })`
 
-4. **skipToPrevious**
-
-   - **Description**: Skip to the previous track in the current playback queue
+3. **addToQueue**
+   - **Description**: Add a track to the current playback queue.
    - **Parameters**:
+     - `uri` (string, optional): Full Spotify track URI (overrides `type` and `id` when present)
+     - `type` (string, optional): `track`
+     - `id` (string, optional): Spotify track ID
      - `deviceId` (string, optional): ID of the device
-   - **Returns**: Success status
-   - **Example**: `skipToPrevious()`
+   - **Example**: `addToQueue({ uri: "spotify:track:6rqhFgbbKwnb9MLmUQDhG6" })` or `addToQueue({ type: "track", id: "6rqhFgbbKwnb9MLmUQDhG6" })`
 
-5. **createPlaylist**
-
-   - **Description**: Create a new playlist on Spotify
+4. **createPlaylist**
+   - **Description**: Create a new playlist in your library.
    - **Parameters**:
      - `name` (string): Name for the new playlist
-     - `description` (string, optional): Description for the playlist
-     - `public` (boolean, optional): Whether the playlist should be public (default: false)
-   - **Returns**: Object with the new playlist's ID and URL
+     - `description` (string, optional): Description
+     - `public` (boolean, optional): Public visibility (default: false)
    - **Example**: `createPlaylist({ name: "Workout Mix", description: "Songs to get pumped up", public: false })`
 
-6. **addTracksToPlaylist**
-
-   - **Description**: Add tracks to an existing Spotify playlist
+5. **addTracksToPlaylist**
+   - **Description**: Add one or more tracks to an existing playlist. IDs are **bare Spotify track IDs** (the tool prepends `spotify:track:` for the API). Requests are sent to Spotify in chunks of up to 100 tracks.
    - **Parameters**:
-     - `playlistId` (string): ID of the playlist
-     - `trackUris` (array): Array of track URIs or IDs to add
-     - `position` (number, optional): Position to insert tracks
-   - **Returns**: Success status and snapshot ID
-   - **Example**: `addTracksToPlaylist({ playlistId: "3cEYpjA9oz9GiPac4AsH4n", trackUris: ["spotify:track:4iV5W9uYEdYUVa79Axb7Rh"] })`
+     - `playlistId` (string): The playlist’s Spotify ID
+     - `trackIds` (array of strings): Track IDs (not full URIs)
+     - `position` (number, optional): 0-based insert index for the first added chunk
+   - **Example**: `addTracksToPlaylist({ playlistId: "3cEYpjA9oz9GiPac4AsH4n", trackIds: ["4iV5W9uYEdYUVa79Axb7Rh", "2igwFfvr1OAlXZMnPIcxHR"] })`
 
-7. **addToQueue**
+6. **removeTracksFromPlaylist**
+   - **Description**: Remove one or more tracks from a playlist you can edit (by track ID).
+   - **Parameters**:
+     - `playlistId` (string)
+     - `trackIds` (array of strings)
+   - **Example**: `removeTracksFromPlaylist({ playlistId: "3cEYpjA9oz9GiPac4AsH4n", trackIds: ["4iV5W9uYEdYUVa79Axb7Rh"] })`
 
-   - **Description**: Adds a track, album, artist or playlist to the current playback queue
-   - - **Parameters**:
-     - `uri` (string, optional): Spotify URI of the item to add to queue (overrides type and id)
-     - `type` (string, optional): Type of item to queue (track, album, artist, playlist)
-     - `id` (string, optional): Spotify ID of the item to queue
-     - `deviceId` (string, optional): ID of the device to queue on
-   - **Returns**: Success status
-   - **Example**: `addToQueue({ uri: "spotify:track:6rqhFgbbKwnb9MLmUQDhG6" })`
-   - **Alternative**: `addToQueue({ type: "track", id: "6rqhFgbbKwnb9MLmUQDhG6" })`
+7. **addFavoriteTracks**
+   - **Description**: Save tracks to your **Liked Songs** (library). The server calls Spotify’s current [`PUT /v1/me/library`](https://developer.spotify.com/documentation/web-api/reference/save-library-items) endpoint (the legacy `PUT /v1/me/tracks` API is deprecated and often returns 403).
+   - **OAuth**: `user-library-modify`. The server also requests `user-library-read` for library-related compatibility. If you upgraded from an older fork, run `npm run auth` again so the token includes the full scope set.
+   - **Parameters**:
+     - `trackIds` (array of strings): bare Spotify track IDs (up to **40** per HTTP request; longer lists are chunked automatically).
+   - **Example**: `addFavoriteTracks({ trackIds: ["6rqhFgbbKwnb9MLmUQDhG6"] })`
+
+8. **removeFavoriteTracks**
+   - **Description**: Remove tracks from **Liked Songs**. Uses [`DELETE /v1/me/library`](https://developer.spotify.com/documentation/web-api/reference/remove-library-items) with `spotify:track:{id}` URIs (same 40-ID chunking as add).
+   - **OAuth**: same as `addFavoriteTracks`.
+   - **Parameters**:
+     - `trackIds` (array of strings)
+   - **Example**: `removeFavoriteTracks({ trackIds: ["6rqhFgbbKwnb9MLmUQDhG6"] })`
 
 </details>
 
@@ -196,22 +177,23 @@ To comply with Spotify’s Developer Terms, you must have a Spotify Premium acco
 
 ### Prerequisites
 
-- Installed [Node.js](https://nodejs.org/)
+- Installed [Node.js](https://nodejs.org/) 20 or newer
 - A Spotify Premium account
 - A registered [Spotify Developer application](https://developer.spotify.com/dashboard/)
 
 ### MCP Server Installation
 
 ```bash
-git clone https://github.com/igorgarbuz/spotify-mcp.git
+git clone https://github.com/jerzyszajner/spotify-mcp.git
 cd spotify-mcp
 npm install
 npm run build
 ```
 
 ### Node.js Installation
+
 1. Go to [Node.js download page](https://nodejs.org/en/download)
-2. Download an install a recent Node.js version for your platform
+2. Download and install Node.js 20 or newer for your platform
 
 ### Creating a Spotify Developer Application
 
@@ -233,15 +215,12 @@ Create a `spotify-config.json` file in the project root:
 cp spotify-config.example.json spotify-config.json
 ```
 
-Then edit the file by adding your client id only. The `accessToken`, `refreshToken` and `accessTokenExpiresAt` will be managed automatically. The `redirectUri` should be the same as the one you added in the Spotify Developer Dashboard. `127.0.0.1` is the simplest option for the local MCP server.
+Then edit the file by adding your client id only. The `accessToken`, `refreshToken`, `accessTokenExpiresAt`, and `scope` fields will be managed automatically. The `redirectUri` should be the same as the one you added in the Spotify Developer Dashboard. `127.0.0.1` is the simplest option for the local MCP server.
 
 ```json
 {
   "clientId": "you-must-add-your-client-id-here",
-  "redirectUri": "http://127.0.0.1:8888/callback",
-  "accessToken": "your-access-token-filled-automatically",
-  "refreshToken": "your-refresh-token-filled-automatically",
-  "accessTokenExpiresAt": 0
+  "redirectUri": "http://127.0.0.1:8888/callback"
 }
 ```
 
@@ -271,11 +250,12 @@ npm run auth
   "redirectUri": "http://127.0.0.1:8888/callback",
   "accessToken": "your-access-token-filled-automatically",
   "refreshToken": "your-refresh-token-filled-automatically",
-  "accessTokenExpiresAt": 0
+  "accessTokenExpiresAt": 1760000000000,
+  "scope": "approved OAuth scopes"
 }
 ```
 
-7. The server will automatically refresh the access token when needed, so you don't need to re-authenticate.
+7. The server will automatically refresh the access token when needed, so you don't need to re-authenticate (unless the app’s [OAuth scopes](https://developer.spotify.com/documentation/web-api/concepts/scopes) in the code change — in that case run `npm run auth` again to approve the new set).
 
 ## Integrating with AI assistants
 
@@ -288,11 +268,15 @@ The easiest way to use the Spotify MCP server is with Claude Desktop. Start [Cla
   "mcpServers": {
     "spotify": {
       "command": "node",
-      "args": ["absolute/path/to/spotify-mcp/build/index.js"]
+      "args": ["/absolute/path/to/spotify-mcp/build/index.js"]
     }
   }
 }
 ```
+
+If Claude Desktop does not find `node` on `PATH`, use the full path to your Node binary (for example from `which node` or your nvm install), same as in `args` for the server script.
+
+Optional `autoApprove` lists tool names that may run without confirmation; read-only examples use the real tool ids from this server, e.g. `getRecentlyPlayed` and `getNowPlaying` (not `getListeningHistory`).
 
 ### Cursor
 
@@ -312,7 +296,7 @@ To set up your MCP correctly with Cline ensure you have the following file confi
     "spotify": {
       "command": "node",
       "args": ["/absolute/path/to/spotify-mcp/build/index.js"],
-      "autoApprove": ["getListeningHistory", "getNowPlaying"]
+      "autoApprove": ["getRecentlyPlayed", "getNowPlaying"]
     }
   }
 }
@@ -329,7 +313,7 @@ In `Settings` then `Windsurf Settings` type `MCP` in the search bar. In the resu
   "mcpServers": {
     "spotify": {
       "command": "node",
-      "args": ["absolute/path/to/spotify-mcp/build/index.js"],
+      "args": ["absolute/path/to/spotify-mcp/build/index.js"]
     }
   }
 }
@@ -339,6 +323,11 @@ You can add additional tools to the auto approval array to run the tools without
 
 ## Credits
 
-This project was inspired by [spotify-mcp-server](https://github.com/marcelmarais/spotify-mcp-server) by Marcel Marais. Main modifications:
-1. The authentication process was refactored to use the Spotify API’s PKCE extension, eliminating the need for local client secret storage and repeated re-authentication.
-2. Added new tools to understand user's taste.
+This maintained fork is based on [igorgarbuz/spotify-mcp](https://github.com/igorgarbuz/spotify-mcp) by Igor Garbuz. That project was inspired by [spotify-mcp-server](https://github.com/marcelmarais/spotify-mcp-server) by Marcel Marais.
+
+Main modifications in this fork:
+
+1. Added Liked Songs tools (`addFavoriteTracks`, `removeFavoriteTracks`) using Spotify’s current library endpoints.
+2. Improved OAuth handling, token refresh, and scope diagnostics for newer Spotify API behavior.
+3. Fixed playback and queue handling for Spotify track URIs and supported queue item types.
+4. Improved playlist support with 100-item pages, chunked edits, and clearer 403 guidance.

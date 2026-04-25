@@ -1,7 +1,4 @@
 {
   "clientId": "your-client-id",
-  "redirectUri": "http://127.0.0.1:8888/callback",
-  "accessToken": "your-access-token",
-  "refreshToken": "your-refresh-token",
-  "accessTokenExpiresAt": 0
+  "redirectUri": "http://127.0.0.1:8888/callback"
 }
