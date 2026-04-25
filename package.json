@@ -1,9 +1,17 @@
 {
   "type": "module",
-  "author": "Igor Garbuz",
+  "author": "Jerzy Szajner",
   "name": "spotify-mcp",
   "version": "1.2.0",
-  "description": "Model Context Protocol local Node server for Spotify API",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "description": "MCP local server for Spotify; fork of igorgarbuz/spotify-mcp, maintained in this repo.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jerzyszajner/spotify-mcp.git"
+  },
   "main": "index.js",
   "bin": {
     "spotify-mcp": "./build/index.js"
