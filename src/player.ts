@@ -1,6 +1,13 @@
-import { handleSpotifyRequest } from './utils.js';
+import { formatToolActionFailure, handleSpotifyRequest } from './utils.js';
 import { z } from 'zod';
 import type { SpotifyHandlerExtra, tool } from './types.js';
+
+type PlayableSpotifyType = 'track' | 'album' | 'artist' | 'playlist';
+
+function spotifyTypeFromUri(uri: string): PlayableSpotifyType | undefined {
+  const match = /^spotify:(track|album|artist|playlist):[^:]+$/.exec(uri);
+  return match?.[1] as PlayableSpotifyType | undefined;
+}
 
 const playMusic: tool<{
   uri: z.ZodOptional<z.ZodString>;
@@ -25,15 +32,16 @@ const playMusic: tool<{
       .optional()
       .describe('The Spotify device ID to play on'),
   },
-  handler: async (args, extra: SpotifyHandlerExtra) => {
+  handler: async (args, _extra: SpotifyHandlerExtra) => {
     const { uri, type, id, deviceId } = args;
+    const itemType = uri ? (type ?? spotifyTypeFromUri(uri)) : type;
 
     if (!uri && (!type || !id)) {
       return {
         content: [
           {
             type: 'text',
-            text: 'Error: Must provide either a URI or both a type and ID',
+            text: 'play needs uri or (type and id).',
             isError: true,
           },
         ],
@@ -41,32 +49,44 @@ const playMusic: tool<{
     }
 
     let spotifyUri = uri;
-    if (!spotifyUri && type && id) {
-      spotifyUri = `spotify:${type}:${id}`;
+    if (!spotifyUri && itemType && id) {
+      spotifyUri = `spotify:${itemType}:${id}`;
     }
 
-    await handleSpotifyRequest(async (spotifyApi) => {
-      const device = deviceId || '';
+    try {
+      await handleSpotifyRequest(async (spotifyApi) => {
+        const device = deviceId || '';
 
-      if (!spotifyUri) {
-        await spotifyApi.player.startResumePlayback(device);
-        return;
-      }
+        if (!spotifyUri) {
+          await spotifyApi.player.startResumePlayback(device);
+          return;
+        }
 
-      if (type === 'track') {
-        await spotifyApi.player.startResumePlayback(device, undefined, [
-          spotifyUri,
-        ]);
-      } else {
-        await spotifyApi.player.startResumePlayback(device, spotifyUri);
-      }
-    });
+        if (itemType === 'track') {
+          await spotifyApi.player.startResumePlayback(device, undefined, [
+            spotifyUri,
+          ]);
+        } else {
+          await spotifyApi.player.startResumePlayback(device, spotifyUri);
+        }
+      });
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: formatToolActionFailure('play', error),
+            isError: true,
+          },
+        ],
+      };
+    }
 
     return {
       content: [
         {
           type: 'text',
-          text: `Started playing ${type || 'music'} ${id ? `(ID: ${id})` : ''}`,
+          text: `Started playing ${itemType || 'music'}${id ? ` (ID: ${id})` : ''}`,
         },
       ],
     };
@@ -89,32 +109,44 @@ const playbackAction: tool<{
       .optional()
       .describe('The Spotify device ID to perform the action on'),
   },
-  handler: async (args, extra: SpotifyHandlerExtra) => {
+  handler: async (args, _extra: SpotifyHandlerExtra) => {
     const { action, deviceId } = args;
 
     let successMessage = '';
 
-    await handleSpotifyRequest(async (spotifyApi) => {
-      const device = deviceId || '';
-      switch (action) {
-        case 'pause':
-          await spotifyApi.player.pausePlayback(device);
-          successMessage = 'Playback paused';
-          break;
-        case 'resume':
-          await spotifyApi.player.startResumePlayback(device);
-          successMessage = 'Playback resumed';
-          break;
-        case 'skipToNext':
-          await spotifyApi.player.skipToNext(device);
-          successMessage = 'Skipped to next track';
-          break;
-        case 'skipToPrevious':
-          await spotifyApi.player.skipToPrevious(device);
-          successMessage = 'Skipped to previous track';
-          break;
-      }
-    });
+    try {
+      await handleSpotifyRequest(async (spotifyApi) => {
+        const device = deviceId || '';
+        switch (action) {
+          case 'pause':
+            await spotifyApi.player.pausePlayback(device);
+            successMessage = 'Playback paused';
+            break;
+          case 'resume':
+            await spotifyApi.player.startResumePlayback(device);
+            successMessage = 'Playback resumed';
+            break;
+          case 'skipToNext':
+            await spotifyApi.player.skipToNext(device);
+            successMessage = 'Skipped to next track';
+            break;
+          case 'skipToPrevious':
+            await spotifyApi.player.skipToPrevious(device);
+            successMessage = 'Skipped to previous track';
+            break;
+        }
+      });
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: formatToolActionFailure('playback', error),
+            isError: true,
+          },
+        ],
+      };
+    }
 
     return {
       content: [
