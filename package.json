@@ -5,32 +5,34 @@
   "version": "1.2.0",
   "license": "MIT",
   "engines": {
-    "node": ">=20"
+    "node": ">=24"
   },
   "description": "MCP local server for Spotify; fork of igorgarbuz/spotify-mcp, maintained in this repo.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/jerzyszajner/spotify-mcp.git"
   },
-  "main": "index.js",
+  "main": "./build/index.js",
   "bin": {
     "spotify-mcp": "./build/index.js"
   },
   "scripts": {
     "auth": "tsc && node build/auth.js",
-    "build": "tsc && node -e \"require('fs').chmodSync('build/index.js', '755')\"",
+    "build": "tsc && node --input-type=module -e \"import{chmodSync}from'fs';chmodSync('build/index.js','755')\"",
     "lint": "biome check . --write"
   },
-  "files": ["build"],
+  "files": [
+    "build"
+  ],
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
     "@spotify/web-api-ts-sdk": "^1.2.0",
-    "open": "^10.1.2",
-    "zod": "^3.25.61"
+    "open": "^11.0.0",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@biomejs/biome": "^1.9.4",
-    "@types/node": "^22.15.3",
-    "typescript": "^5.8.3"
+    "@biomejs/biome": "^2.4.13",
+    "@types/node": "^24.0.0",
+    "typescript": "^6.0.3"
   }
 }
