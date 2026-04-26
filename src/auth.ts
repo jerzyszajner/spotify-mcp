@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { authorizeSpotify } from './utils.js';
+import { authorizeSpotify } from './config.js';
 
 console.log('Starting Spotify authentication flow...');
 authorizeSpotify()

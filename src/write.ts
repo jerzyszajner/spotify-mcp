@@ -3,6 +3,7 @@ import {
   errorIndicatesHttpStatus,
   formatToolActionFailure,
   handleSpotifyRequest,
+  resolveDeviceIdForPlayback,
 } from './utils.js';
 import { z } from 'zod';
 import type { SpotifyHandlerExtra, tool } from './types.js';
@@ -310,9 +311,13 @@ const addToQueue: tool<{
 
     try {
       await handleSpotifyRequest(async (spotifyApi) => {
+        const device = await resolveDeviceIdForPlayback(
+          spotifyApi,
+          deviceId || undefined,
+        );
         await spotifyApi.player.addItemToPlaybackQueue(
           spotifyUri,
-          deviceId || '',
+          device || undefined,
         );
       });
 

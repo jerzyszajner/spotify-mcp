@@ -1,4 +1,8 @@
-import { formatToolActionFailure, handleSpotifyRequest } from './utils.js';
+import {
+  formatToolActionFailure,
+  handleSpotifyRequest,
+  resolveDeviceIdForPlayback,
+} from './utils.js';
 import { z } from 'zod';
 import type { SpotifyHandlerExtra, tool } from './types.js';
 
@@ -11,7 +15,14 @@ function spotifyTypeFromUri(uri: string): PlayableSpotifyType | undefined {
 
 const playMusic: tool<{
   uri: z.ZodOptional<z.ZodString>;
-  type: z.ZodOptional<z.ZodEnum<['track', 'album', 'artist', 'playlist']>>;
+  type: z.ZodOptional<
+    z.ZodEnum<{
+      track: 'track';
+      album: 'album';
+      artist: 'artist';
+      playlist: 'playlist';
+    }>
+  >;
   id: z.ZodOptional<z.ZodString>;
   deviceId: z.ZodOptional<z.ZodString>;
 }> = {
@@ -34,7 +45,7 @@ const playMusic: tool<{
   },
   handler: async (args, _extra: SpotifyHandlerExtra) => {
     const { uri, type, id, deviceId } = args;
-    const itemType = uri ? (type ?? spotifyTypeFromUri(uri)) : type;
+    const itemType = type ?? (uri ? spotifyTypeFromUri(uri) : undefined);
 
     if (!uri && (!type || !id)) {
       return {
@@ -55,7 +66,10 @@ const playMusic: tool<{
 
     try {
       await handleSpotifyRequest(async (spotifyApi) => {
-        const device = deviceId || '';
+        const device = await resolveDeviceIdForPlayback(
+          spotifyApi,
+          deviceId || undefined,
+        );
 
         if (!spotifyUri) {
           await spotifyApi.player.startResumePlayback(device);
@@ -94,7 +108,12 @@ const playMusic: tool<{
 };
 
 const playbackAction: tool<{
-  action: z.ZodEnum<['pause', 'skipToNext', 'skipToPrevious', 'resume']>;
+  action: z.ZodEnum<{
+    pause: 'pause';
+    skipToNext: 'skipToNext';
+    skipToPrevious: 'skipToPrevious';
+    resume: 'resume';
+  }>;
   deviceId: z.ZodOptional<z.ZodString>;
 }> = {
   name: 'playbackAction',
@@ -116,7 +135,10 @@ const playbackAction: tool<{
 
     try {
       await handleSpotifyRequest(async (spotifyApi) => {
-        const device = deviceId || '';
+        const device = await resolveDeviceIdForPlayback(
+          spotifyApi,
+          deviceId || undefined,
+        );
         switch (action) {
           case 'pause':
             await spotifyApi.player.pausePlayback(device);
