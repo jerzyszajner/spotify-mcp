@@ -104,6 +104,14 @@ To comply with Spotify’s Developer Terms, you must have a Spotify Premium acco
    - **Returns**: If items are found it returns a formatted list of top items else a message stating: "You don't have any top items on Spotify".
    - **Example**: `getUserTopItems({ type: "artists", time_range: "short_term", limit: 10 })`
 
+8. **getLikedSongs**
+   - **Description**: Get tracks saved in the current user's Liked Songs library.
+   - **Parameters**:
+     - `limit` (number, optional): Maximum number of tracks to return (1–50, default 50).
+     - `offset` (number, optional): Index of the first item to return. Defaults to 0.
+   - **Returns**: A formatted list of saved tracks with artists, duration, date added, and IDs.
+   - **Example**: `getLikedSongs({ limit: 20, offset: 0 })`
+
 </details>
 
 <details>
@@ -177,7 +185,7 @@ To comply with Spotify’s Developer Terms, you must have a Spotify Premium acco
 
 ### Prerequisites
 
-- Installed [Node.js](https://nodejs.org/) 20 or newer
+- Installed [Node.js](https://nodejs.org/) 24 or newer (see `engines` in `package.json`). If you use [nvm](https://github.com/nvm-sh/nvm), run `nvm use` in the repo root to match [`.nvmrc`](.nvmrc).
 - A Spotify Premium account
 - A registered [Spotify Developer application](https://developer.spotify.com/dashboard/)
 
@@ -186,6 +194,7 @@ To comply with Spotify’s Developer Terms, you must have a Spotify Premium acco
 ```bash
 git clone https://github.com/jerzyszajner/spotify-mcp.git
 cd spotify-mcp
+nvm use   # optional, if you use nvm: align with .nvmrc
 npm install
 npm run build
 ```
@@ -193,7 +202,7 @@ npm run build
 ### Node.js Installation
 
 1. Go to [Node.js download page](https://nodejs.org/en/download)
-2. Download and install Node.js 20 or newer for your platform
+2. Download and install Node.js 24 or newer for your platform (LTS is fine)
 
 ### Creating a Spotify Developer Application
 
@@ -327,7 +336,7 @@ This maintained fork is based on [igorgarbuz/spotify-mcp](https://github.com/igo
 
 Main modifications in this fork:
 
-1. Added Liked Songs tools (`addFavoriteTracks`, `removeFavoriteTracks`) using Spotify’s current library endpoints.
+1. Added Liked Songs tools (`addFavoriteTracks`, `removeFavoriteTracks`, `getLikedSongs`) using Spotify’s current library endpoints.
 2. Improved OAuth handling, token refresh, and scope diagnostics for newer Spotify API behavior.
 3. Fixed playback and queue handling for Spotify track URIs and supported queue item types.
 4. Improved playlist support with 100-item pages, chunked edits, and clearer 403 guidance.
