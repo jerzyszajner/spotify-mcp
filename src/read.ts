@@ -1,10 +1,10 @@
 import type { MaxInt } from '@spotify/web-api-ts-sdk';
 import { z } from 'zod';
 import type { SpotifyHandlerExtra, SpotifyTrack, tool } from './types.js';
+import { getSavedOAuthScopes } from './config.js';
 import {
   errorIndicatesHttpStatus,
   formatDuration,
-  getSavedOAuthScopes,
   handleSpotifyRequest,
 } from './utils.js';
 
@@ -51,19 +51,21 @@ function playlistTracksForbiddenHelp(): string {
   ].join('\n');
 }
 
-function isTrack(item: any): item is SpotifyTrack {
+function isTrack(item: unknown): item is SpotifyTrack {
+  if (!item || typeof item !== 'object') return false;
+  const t = item as Record<string, unknown>;
   return (
-    item &&
-    item.type === 'track' &&
-    Array.isArray(item.artists) &&
-    item.album &&
-    typeof item.album.name === 'string'
+    t.type === 'track' &&
+    Array.isArray(t.artists) &&
+    t.album !== null &&
+    typeof t.album === 'object' &&
+    typeof (t.album as Record<string, unknown>).name === 'string'
   );
 }
 
 const searchSpotify: tool<{
   query: z.ZodString;
-  type: z.ZodEnum<['track', 'album', 'playlist']>;
+  type: z.ZodEnum<{ track: 'track'; album: 'album'; playlist: 'playlist' }>;
   limit: z.ZodOptional<z.ZodNumber>;
   offset: z.ZodOptional<z.ZodNumber>;
 }> = {
@@ -101,7 +103,7 @@ const searchSpotify: tool<{
       .optional()
       .describe('The index of the first item to return. Defaults to 0'),
   },
-  handler: async (args, extra: SpotifyHandlerExtra) => {
+  handler: async (args, _extra: SpotifyHandlerExtra) => {
     const { query, type, limit = 20, offset = 0 } = args;
 
     try {
@@ -176,13 +178,13 @@ const getNowPlaying: tool<Record<string, never>> = {
   name: 'getNowPlaying',
   description: 'Get information about the currently playing track on Spotify',
   schema: {},
-  handler: async (args, extra: SpotifyHandlerExtra) => {
+  handler: async (_args, _extra: SpotifyHandlerExtra) => {
     try {
       const currentTrack = await handleSpotifyRequest(async (spotifyApi) => {
         return await spotifyApi.player.getCurrentlyPlayingTrack();
       });
 
-      if (!currentTrack || !currentTrack.item) {
+      if (!currentTrack?.item) {
         return {
           content: [
             {
@@ -255,45 +257,56 @@ const getUserPlaylists: tool<{
       .optional()
       .describe('Maximum number of playlists to return (1-50)'),
   },
-  handler: async (args, extra: SpotifyHandlerExtra) => {
+  handler: async (args, _extra: SpotifyHandlerExtra) => {
     const { limit = 50 } = args;
 
-    const playlists = await handleSpotifyRequest(async (spotifyApi) => {
-      return await spotifyApi.currentUser.playlists.playlists(
-        limit as MaxInt<50>,
-      );
-    });
+    try {
+      const playlists = await handleSpotifyRequest(async (spotifyApi) => {
+        return await spotifyApi.currentUser.playlists.playlists(
+          limit as MaxInt<50>,
+        );
+      });
 
-    if (playlists.items.length === 0) {
+      if (playlists.items.length === 0) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: "You don't have any playlists on Spotify",
+            },
+          ],
+        };
+      }
+
+      const formattedPlaylists = playlists.items
+        .map((playlist, i) => {
+          const n = trackTotalFromPlaylistListItem(playlist);
+          const countPart =
+            n === undefined
+              ? 'track count not provided here — use getPlaylistTracks with this ID'
+              : `${n} track${n === 1 ? '' : 's'}`;
+          return `${i + 1}. "${playlist.name}" (${countPart}) - ID: ${playlist.id}`;
+        })
+        .join('\n');
+
       return {
         content: [
           {
             type: 'text',
-            text: "You don't have any playlists on Spotify",
+            text: `# Your Spotify Playlists\n\n${formattedPlaylists}\n\nNote: Spotify often omits or zeroes list metadata for this endpoint; non-zero counts are best-effort. To list songs, call getPlaylistTracks for each playlist ID.`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error getting playlists: ${error instanceof Error ? error.message : String(error)}`,
           },
         ],
       };
     }
-
-    const formattedPlaylists = playlists.items
-      .map((playlist, i) => {
-        const n = trackTotalFromPlaylistListItem(playlist);
-        const countPart =
-          n === undefined
-            ? 'track count not provided here — use getPlaylistTracks with this ID'
-            : `${n} track${n === 1 ? '' : 's'}`;
-        return `${i + 1}. "${playlist.name}" (${countPart}) - ID: ${playlist.id}`;
-      })
-      .join('\n');
-
-    return {
-      content: [
-        {
-          type: 'text',
-          text: `# Your Spotify Playlists\n\n${formattedPlaylists}\n\nNote: Spotify often omits or zeroes list metadata for this endpoint; non-zero counts are best-effort. To list songs, call getPlaylistTracks for each playlist ID.`,
-        },
-      ],
-    };
   },
 };
 
@@ -322,7 +335,7 @@ const getPlaylistTracks: tool<{
       .optional()
       .describe('The index of the first item to return. Defaults to 0'),
   },
-  handler: async (args, extra: SpotifyHandlerExtra) => {
+  handler: async (args, _extra: SpotifyHandlerExtra) => {
     const { playlistId, limit = 100, offset = 0 } = args;
 
     let playlistTracks: { items?: PlaylistItemRow[] };
@@ -338,21 +351,9 @@ const getPlaylistTracks: tool<{
             `playlists/${playlistId}/items?${qs}`,
           );
         } catch (first: unknown) {
-          const status =
-            first && typeof first === 'object' && 'status' in first
-              ? (first as { status?: number }).status
-              : undefined;
-          if (status === 404) {
-            // `getPlaylistItems` limit is typed as MaxInt<50>; value may be up to 100 at runtime (API max).
-            return await spotifyApi.playlists.getPlaylistItems(
-              playlistId,
-              undefined,
-              undefined,
-              limit as MaxInt<50>,
-              offset,
-            );
-          }
-          if (errorIndicatesHttpStatus(first, 403)) {
+          const is403 = errorIndicatesHttpStatus(first, 403);
+          // `getPlaylistItems` limit is typed as MaxInt<50>; value may be up to 100 at runtime (API max).
+          if (is403 || errorIndicatesHttpStatus(first, 404)) {
             try {
               return await spotifyApi.playlists.getPlaylistItems(
                 playlistId,
@@ -361,8 +362,9 @@ const getPlaylistTracks: tool<{
                 limit as MaxInt<50>,
                 offset,
               );
-            } catch {
-              throw first;
+            } catch (second) {
+              if (is403) throw first;
+              throw second;
             }
           }
           throw first;
@@ -434,49 +436,60 @@ const getRecentlyPlayed: tool<{
       .optional()
       .describe('Maximum number of tracks to return (1-50)'),
   },
-  handler: async (args, extra: SpotifyHandlerExtra) => {
+  handler: async (args, _extra: SpotifyHandlerExtra) => {
     const { limit = 50 } = args;
 
-    const history = await handleSpotifyRequest(async (spotifyApi) => {
-      return await spotifyApi.player.getRecentlyPlayedTracks(
-        limit as MaxInt<50>,
-      );
-    });
+    try {
+      const history = await handleSpotifyRequest(async (spotifyApi) => {
+        return await spotifyApi.player.getRecentlyPlayedTracks(
+          limit as MaxInt<50>,
+        );
+      });
 
-    if (history.items.length === 0) {
+      if (history.items.length === 0) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: "You don't have any recently played tracks on Spotify",
+            },
+          ],
+        };
+      }
+
+      const formattedHistory = history.items
+        .map((item, i) => {
+          const track = item.track;
+          if (!track) return `${i + 1}. [Removed track]`;
+
+          if (isTrack(track)) {
+            const artists = track.artists.map((a) => a.name).join(', ');
+            const duration = formatDuration(track.duration_ms);
+            return `${i + 1}. "${track.name}" by ${artists} (${duration}) - ID: ${track.id}`;
+          }
+
+          return `${i + 1}. Unknown item`;
+        })
+        .join('\n');
+
       return {
         content: [
           {
             type: 'text',
-            text: "You don't have any recently played tracks on Spotify",
+            text: `# Recently Played Tracks\n\n${formattedHistory}`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error getting recently played: ${error instanceof Error ? error.message : String(error)}`,
           },
         ],
       };
     }
-
-    const formattedHistory = history.items
-      .map((item, i) => {
-        const track = item.track;
-        if (!track) return `${i + 1}. [Removed track]`;
-
-        if (isTrack(track)) {
-          const artists = track.artists.map((a) => a.name).join(', ');
-          const duration = formatDuration(track.duration_ms);
-          return `${i + 1}. "${track.name}" by ${artists} (${duration}) - ID: ${track.id}`;
-        }
-
-        return `${i + 1}. Unknown item`;
-      })
-      .join('\n');
-
-    return {
-      content: [
-        {
-          type: 'text',
-          text: `# Recently Played Tracks\n\n${formattedHistory}`,
-        },
-      ],
-    };
   },
 };
 
@@ -500,47 +513,62 @@ const getFollowedArtists: tool<{
       .optional()
       .describe('Maximum number of artists to return (1-50)'),
   },
-  handler: async (args, extra: SpotifyHandlerExtra) => {
+  handler: async (args, _extra: SpotifyHandlerExtra) => {
     const { limit = 50, after } = args;
 
-    const artists = await handleSpotifyRequest(async (spotifyApi) => {
-      return await spotifyApi.currentUser.followedArtists(
-        after,
-        limit as MaxInt<50>,
-      );
-    });
+    try {
+      const artists = await handleSpotifyRequest(async (spotifyApi) => {
+        return await spotifyApi.currentUser.followedArtists(
+          after,
+          limit as MaxInt<50>,
+        );
+      });
 
-    if (artists.artists.items.length === 0) {
+      if (artists.artists.items.length === 0) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: "User doesn't follow any artists on Spotify",
+            },
+          ],
+        };
+      }
+
+      const formattedArtists = artists.artists.items
+        .map((artist, i) => {
+          return `${i + 1}. "${artist.name}" - ID: ${artist.id}`;
+        })
+        .join('\n');
+
       return {
         content: [
           {
             type: 'text',
-            text: "User doesn't follow any artists on Spotify",
+            text: `# Artists You Follow\n\n${formattedArtists}`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error getting followed artists: ${error instanceof Error ? error.message : String(error)}`,
           },
         ],
       };
     }
-
-    const formattedArtists = artists.artists.items
-      .map((artist, i) => {
-        return `${i + 1}. "${artist.name}" - ID: ${artist.id}`;
-      })
-      .join('\n');
-
-    return {
-      content: [
-        {
-          type: 'text',
-          text: `# Artists You Follow\n\n${formattedArtists}`,
-        },
-      ],
-    };
   },
 };
 
 const getUserTopItems: tool<{
-  type: z.ZodEnum<['artists', 'tracks']>;
-  time_range: z.ZodEnum<['short_term', 'medium_term', 'long_term']>;
+  type: z.ZodEnum<{ artists: 'artists'; tracks: 'tracks' }>;
+  time_range: z.ZodEnum<{
+    short_term: 'short_term';
+    medium_term: 'medium_term';
+    long_term: 'long_term';
+  }>;
   limit: z.ZodOptional<z.ZodNumber>;
   offset: z.ZodOptional<z.ZodNumber>;
 }> = {
@@ -564,55 +592,143 @@ const getUserTopItems: tool<{
       .optional()
       .describe('The index of the first item to return. Defaults to 0'),
   },
-  handler: async (args, extra: SpotifyHandlerExtra) => {
+  handler: async (args, _extra: SpotifyHandlerExtra) => {
     const { type, time_range, limit = 50, offset = 0 } = args;
 
-    const topItems = await handleSpotifyRequest(async (spotifyApi) => {
-      return await spotifyApi.currentUser.topItems(
-        type,
-        time_range,
-        limit as MaxInt<50>,
-        offset,
-      );
-    });
+    try {
+      const topItems = await handleSpotifyRequest(async (spotifyApi) => {
+        return await spotifyApi.currentUser.topItems(
+          type,
+          time_range,
+          limit as MaxInt<50>,
+          offset,
+        );
+      });
 
-    if (topItems.items.length === 0) {
+      if (topItems.items.length === 0) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `User doesn't have any top ${type} on Spotify`,
+            },
+          ],
+        };
+      }
+
+      const formattedItems = topItems.items
+        .map((item, i) => {
+          if (type === 'artists') {
+            return `${i + 1}. "${item.name}" - ID: ${item.id}`;
+          } else if (
+            type === 'tracks' &&
+            'artists' in item &&
+            Array.isArray(item.artists)
+          ) {
+            const artists = item.artists.map((a) => a.name).join(', ');
+            return `${i + 1}. "${item.name}" by ${artists} - ID: ${item.id}`;
+          } else {
+            return `${i + 1}. "${item.name}" - ID: ${item.id}`;
+          }
+        })
+        .join('\n');
+
       return {
         content: [
           {
             type: 'text',
-            text: `User doesn't have any top ${type} on Spotify`,
+            text: `# Top ${type}\n\n${formattedItems}`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error getting top ${type}: ${error instanceof Error ? error.message : String(error)}`,
           },
         ],
       };
     }
+  },
+};
 
-    const formattedItems = topItems.items
-      .map((item, i) => {
-        if (type === 'artists') {
-          return `${i + 1}. "${item.name}" - ID: ${item.id}`;
-        } else if (
-          type === 'tracks' &&
-          'artists' in item &&
-          Array.isArray(item.artists)
-        ) {
-          const artists = item.artists.map((a) => a.name).join(', ');
-          return `${i + 1}. "${item.name}" by ${artists} - ID: ${item.id}`;
-        } else {
-          // fallback for type safety
-          return `${i + 1}. "${item.name}" - ID: ${item.id}`;
-        }
-      })
-      .join('\n');
+const getLikedSongs: tool<{
+  limit: z.ZodOptional<z.ZodNumber>;
+  offset: z.ZodOptional<z.ZodNumber>;
+}> = {
+  name: 'getLikedSongs',
+  description: "Get tracks saved in the current user's Liked Songs library",
+  schema: {
+    limit: z
+      .number()
+      .min(1)
+      .max(50)
+      .optional()
+      .describe('Maximum number of tracks to return (1-50)'),
+    offset: z
+      .number()
+      .min(0)
+      .optional()
+      .describe('The index of the first item to return. Defaults to 0'),
+  },
+  handler: async (args, _extra: SpotifyHandlerExtra) => {
+    const { limit = 50, offset = 0 } = args;
 
-    return {
-      content: [
-        {
-          type: 'text',
-          text: `# Top ${type}\n\n${formattedItems}`,
-        },
-      ],
-    };
+    try {
+      const saved = await handleSpotifyRequest(async (spotifyApi) => {
+        return await spotifyApi.currentUser.tracks.savedTracks(
+          limit as MaxInt<50>,
+          offset,
+        );
+      });
+
+      if (saved.items.length === 0) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: "You don't have any saved tracks in your Liked Songs",
+            },
+          ],
+        };
+      }
+
+      const formattedTracks = saved.items
+        .map((item, i) => {
+          const { track } = item;
+          if (!track) return `${i + 1}. [Removed track]`;
+
+          if (isTrack(track)) {
+            const artists = track.artists.map((a) => a.name).join(', ');
+            const duration = formatDuration(track.duration_ms);
+            const date = item.added_at ? item.added_at.slice(0, 10) : 'unknown';
+            return `${i + 1}. "${track.name}" by ${artists} (${duration}) - added ${date} - ID: ${track.id}`;
+          }
+
+          return `${i + 1}. Unknown item`;
+        })
+        .join('\n');
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `# Liked Songs\n\n${formattedTracks}`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error getting liked songs: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+      };
+    }
   },
 };
 
@@ -625,4 +741,5 @@ export const readTools = [
   getRecentlyPlayed,
   getFollowedArtists,
   getUserTopItems,
+  getLikedSongs,
 ];
