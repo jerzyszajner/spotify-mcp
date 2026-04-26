@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Spotify + Claude — macOS Setup Guide</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #f5f5f7;
+  color: #1d1d1f;
+  line-height: 1.6;
+  padding: 32px 16px 80px;
+}
+
+.container { max-width: 720px; margin: 0 auto; }
+
+header { text-align: center; margin-bottom: 40px; }
+header .emoji { font-size: 48px; display: block; margin-bottom: 12px; }
+h1 { font-size: 28px; font-weight: 700; color: #1d1d1f; margin-bottom: 8px; }
+header p { font-size: 16px; color: #6e6e73; }
+
+.progress-bar-wrap { background: #e0e0e5; border-radius: 8px; height: 8px; margin: 24px 0 8px; overflow: hidden; }
+.progress-bar-fill { height: 100%; background: #1db954; border-radius: 8px; transition: width 0.4s ease; width: 0%; }
+.progress-label { text-align: center; font-size: 13px; color: #6e6e73; margin-bottom: 32px; }
+
+.requirements { background: #fff; border-radius: 14px; padding: 20px 24px; margin-bottom: 28px; border: 1px solid #e0e0e5; }
+.requirements h3 { font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: #6e6e73; margin-bottom: 12px; }
+.requirements ul { list-style: none; display: flex; flex-wrap: wrap; gap: 10px; }
+.requirements li { background: #f5f5f7; border-radius: 8px; padding: 6px 14px; font-size: 14px; font-weight: 500; }
+
+.step { background: #fff; border-radius: 14px; padding: 24px; margin-bottom: 16px; border: 1px solid #e0e0e5; transition: border-color .2s, box-shadow .2s; }
+.step.done { border-color: #1db954; box-shadow: 0 0 0 1px #1db954; }
+.step.done .step-title { text-decoration: line-through; color: #6e6e73; }
+
+.step-header { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 14px; cursor: pointer; user-select: none; }
+.checkbox { flex-shrink: 0; width: 26px; height: 26px; border-radius: 50%; border: 2px solid #c7c7cc; display: flex; align-items: center; justify-content: center; margin-top: 1px; transition: background .2s, border-color .2s; font-size: 14px; color: transparent; }
+.step.done .checkbox { background: #1db954; border-color: #1db954; color: #fff; }
+
+.step-meta { flex: 1; }
+.step-number { font-size: 12px; font-weight: 600; color: #6e6e73; text-transform: uppercase; letter-spacing: .06em; }
+.step-title { font-size: 18px; font-weight: 600; margin-top: 2px; }
+.step-body { padding-left: 40px; }
+
+p { margin-bottom: 10px; font-size: 15px; }
+p:last-child { margin-bottom: 0; }
+ol, ul { padding-left: 20px; margin-bottom: 10px; font-size: 15px; }
+li { margin-bottom: 6px; }
+strong { font-weight: 600; }
+code { background: #f0f0f5; border-radius: 5px; padding: 1px 6px; font-size: 13px; font-family: "SF Mono", Menlo, monospace; }
+kbd { background: #e8e8ed; border-radius: 5px; padding: 1px 6px; font-size: 13px; font-family: inherit; border: 1px solid #c7c7cc; }
+
+.cmd-block { background: #1d1d1f; border-radius: 10px; margin: 12px 0; overflow: hidden; }
+.cmd-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 14px; background: #2d2d2f; }
+.cmd-label { font-size: 11px; color: #8e8e93; font-family: "SF Mono", Menlo, monospace; letter-spacing: .04em; text-transform: uppercase; }
+.copy-btn { background: #3a3a3c; color: #aeaeb2; border: none; border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer; transition: background .15s, color .15s; font-family: inherit; }
+.copy-btn:hover { background: #48484a; color: #fff; }
+.copy-btn.copied { background: #1db954; color: #fff; }
+pre.cmd-code { padding: 14px 16px; font-family: "SF Mono", Menlo, monospace; font-size: 14px; color: #f5f5f7; white-space: pre; overflow-x: auto; margin: 0; }
+pre.json-code { padding: 14px 16px; font-family: "SF Mono", Menlo, monospace; font-size: 13px; color: #f5f5f7; white-space: pre; overflow-x: auto; line-height: 1.7; margin: 0; }
+
+.json-block { background: #1d1d1f; border-radius: 10px; margin: 12px 0; overflow: hidden; }
+.json-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 14px; background: #2d2d2f; }
+.json-label { font-size: 11px; color: #8e8e93; font-family: "SF Mono", Menlo, monospace; letter-spacing: .04em; text-transform: uppercase; }
+
+.json-key { color: #ff9f0a; }
+.json-str { color: #30d158; }
+.json-punct { color: #aeaeb2; }
+
+.note { background: #fff8e6; border-left: 3px solid #ff9f0a; border-radius: 0 8px 8px 0; padding: 10px 14px; font-size: 14px; margin: 10px 0; }
+.note strong { color: #bf6a00; }
+.tip { background: #e8f9ef; border-left: 3px solid #1db954; border-radius: 0 8px 8px 0; padding: 10px 14px; font-size: 14px; margin: 10px 0; }
+
+.trouble-table { width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 10px; }
+.trouble-table th { text-align: left; padding: 8px 12px; background: #f0f0f5; font-weight: 600; border-bottom: 2px solid #e0e0e5; }
+.trouble-table td { padding: 10px 12px; border-bottom: 1px solid #f0f0f5; vertical-align: top; }
+.trouble-table tr:last-child td { border-bottom: none; }
+.trouble-table .problem { color: #ff3b30; font-family: "SF Mono", Menlo, monospace; font-size: 13px; }
+
+.section-divider { text-align: center; font-size: 12px; color: #aeaeb2; letter-spacing: .08em; text-transform: uppercase; margin: 32px 0 16px; font-weight: 600; }
+
+.done-banner { display: none; background: linear-gradient(135deg, #1db954, #158a3e); color: #fff; border-radius: 14px; padding: 28px 24px; text-align: center; margin-top: 24px; }
+.done-banner.visible { display: block; }
+.done-banner .big { font-size: 36px; display: block; margin-bottom: 8px; }
+.done-banner h2 { font-size: 22px; margin-bottom: 6px; }
+.done-banner p { opacity: .9; font-size: 15px; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<header>
+  <span class="emoji">🎵</span>
+  <h1>Spotify + Claude on macOS</h1>
+  <p>Control Spotify with natural language — ask Claude to play music, build playlists, and more.</p>
+</header>
+
+<div class="progress-bar-wrap"><div class="progress-bar-fill" id="progressFill"></div></div>
+<div class="progress-label" id="progressLabel">0 of 11 steps completed</div>
+
+<div class="requirements">
+  <h3>Before you start</h3>
+  <ul>
+    <li>🎧 Spotify Premium account</li>
+    <li>🍎 macOS</li>
+    <li>🌐 Internet connection</li>
+    <li>⏱ About 20–30 minutes</li>
+  </ul>
+</div>
+
+<div class="section-divider">Setup</div>
+
+<!-- Step 1 -->
+<div class="step" id="step-1">
+  <div class="step-header" onclick="toggleStep(1)">
+    <div class="checkbox" id="cb-1">✓</div>
+    <div class="step-meta">
+      <div class="step-number">Step 1</div>
+      <div class="step-title">Open Terminal</div>
+    </div>
+  </div>
+  <div class="step-body">
+    <p>Terminal is where you type commands. It looks technical, but you're just copy-pasting — nothing to worry about.</p>
+    <ol>
+      <li>Press <kbd>⌘ Space</kbd> to open Spotlight search</li>
+      <li>Type <strong>Terminal</strong></li>
+      <li>Press <kbd>Enter</kbd></li>
+    </ol>
+    <p>A window with a dark or white background and a blinking cursor will open. Keep it open throughout this guide.</p>
+  </div>
+</div>
+
+<!-- Step 2 -->
+<div class="step" id="step-2">
+  <div class="step-header" onclick="toggleStep(2)">
+    <div class="checkbox" id="cb-2">✓</div>
+    <div class="step-meta">
+      <div class="step-number">Step 2</div>
+      <div class="step-title">Download the project</div>
+    </div>
+  </div>
+  <div class="step-body">
+    <p>Copy and paste the following three commands into Terminal, one at a time. Press <kbd>Enter</kbd> after each one.</p>
+    <div class="cmd-block">
+      <div class="cmd-header">
+        <span class="cmd-label">Terminal</span>
+        <button class="copy-btn" onclick="copyCmd(this, 'cd ~/Desktop\ngit clone https://github.com/jerzyszajner/spotify-mcp.git\ncd spotify-mcp')">Copy</button>
+      </div>
+<pre class="cmd-code">cd ~/Desktop
+git clone https://github.com/jerzyszajner/spotify-mcp.git
+cd spotify-mcp</pre>
+    </div>
+    <div class="note">
+      <strong>Note:</strong> If a pop-up asks you to install developer tools, click <strong>Install</strong> and wait for it to finish. Then paste the commands again.
+    </div>
+    <p>When done, a folder called <code>spotify-mcp</code> will appear on your Desktop.</p>
+  </div>
+</div>
+
+<!-- Step 3 -->
+<div class="step" id="step-3">
+  <div class="step-header" onclick="toggleStep(3)">
+    <div class="checkbox" id="cb-3">✓</div>
+    <div class="step-meta">
+      <div class="step-number">Step 3</div>
+      <div class="step-title">Install Node.js 24</div>
+    </div>
+  </div>
+  <div class="step-body">
+    <p>Node.js is a runtime that the server needs to run. You need version 24 or newer.</p>
+    <ol>
+      <li>Open your browser and go to <strong>nodejs.org/en/download</strong></li>
+      <li>Click <strong>macOS Installer (.pkg)</strong> — make sure the version says <strong>24.x</strong> or higher</li>
+      <li>Open the downloaded file and follow the installer steps (Continue → Continue → Install)</li>
+      <li>When it's done, go back to Terminal and run this to verify:</li>
+    </ol>
+    <div class="cmd-block">
+      <div class="cmd-header">
+        <span class="cmd-label">Terminal — verify</span>
+        <button class="copy-btn" onclick="copyCmd(this, 'node --version')">Copy</button>
+      </div>
+<pre class="cmd-code">node --version</pre>
+    </div>
+    <div class="tip">It should print something like <code>v24.15.0</code>. Any number starting with 24 or higher is fine.</div>
+  </div>
+</div>
+
+<!-- Step 4 -->
+<div class="step" id="step-4">
+  <div class="step-header" onclick="toggleStep(4)">
+    <div class="checkbox" id="cb-4">✓</div>
+    <div class="step-meta">
+      <div class="step-number">Step 4</div>
+      <div class="step-title">Build the server</div>
+    </div>
+  </div>
+  <div class="step-body">
+    <p>Make sure you're still inside the <code>spotify-mcp</code> folder in Terminal, then run:</p>
+    <div class="cmd-block">
+      <div class="cmd-header">
+        <span class="cmd-label">Terminal</span>
+        <button class="copy-btn" onclick="copyCmd(this, 'npm install\nnpm run build')">Copy</button>
+      </div>
+<pre class="cmd-code">npm install
+npm run build</pre>
+    </div>
+    <p>You'll see a lot of text scroll by — that's completely normal. Wait until the <code>$</code> prompt comes back.</p>
+    <div class="tip">Success: no lines containing the word <strong>ERROR</strong> in red, and a new <code>build/</code> folder appears inside <code>spotify-mcp</code>.</div>
+  </div>
+</div>
+
+<div class="section-divider">Spotify Developer Setup</div>
+
+<!-- Step 5 -->
+<div class="step" id="step-5">
+  <div class="step-header" onclick="toggleStep(5)">
+    <div class="checkbox" id="cb-5">✓</div>
+    <div class="step-meta">
+      <div class="step-number">Step 5</div>
+      <div class="step-title">Create a Spotify Developer App</div>
+    </div>
+  </div>
+  <div class="step-body">
+    <p>You need to create a free "developer app" on Spotify's website to get an API key. It takes about 2 minutes.</p>
+    <ol>
+      <li>Go to <strong>developer.spotify.com/dashboard</strong> and log in with your Spotify account</li>
+      <li>Click <strong>Create app</strong></li>
+      <li>Enter any name, e.g. <code>My Claude Controller</code>, and a short description</li>
+      <li>In the <strong>Redirect URIs</strong> field, type exactly:</li>
+    </ol>
+    <div class="cmd-block">
+      <div class="cmd-header">
+        <span class="cmd-label">Redirect URI — copy this exactly</span>
+        <button class="copy-btn" onclick="copyCmd(this, 'http://127.0.0.1:8888/callback')">Copy</button>
+      </div>
+<pre class="cmd-code">http://127.0.0.1:8888/callback</pre>
+    </div>
+    <ol start="5">
+      <li>Click <strong>Add</strong> next to the URI field</li>
+      <li>Check the box agreeing to Spotify's terms, then click <strong>Save</strong></li>
+      <li>You'll see your app's dashboard — find the <strong>Client ID</strong> (a long string of letters and numbers) and copy it to your Notes app — you'll need it in the next step</li>
+    </ol>
+    <div class="note"><strong>Important:</strong> The Client ID is not a password, but treat it as one — don't share it publicly.</div>
+  </div>
+</div>
+
+<!-- Step 6 -->
+<div class="step" id="step-6">
+  <div class="step-header" onclick="toggleStep(6)">
+    <div class="checkbox" id="cb-6">✓</div>
+    <div class="step-meta">
+      <div class="step-number">Step 6</div>
+      <div class="step-title">Add your Client ID to the config file</div>
+    </div>
+  </div>
+  <div class="step-body">
+    <p>Run this in Terminal to create the config file and open it:</p>
+    <div class="cmd-block">
+      <div class="cmd-header">
+        <span class="cmd-label">Terminal</span>
+        <button class="copy-btn" onclick="copyCmd(this, 'cp spotify-config.example.json spotify-config.json\nopen spotify-config.json')">Copy</button>
+      </div>
+<pre class="cmd-code">cp spotify-config.example.json spotify-config.json
+open spotify-config.json</pre>
+    </div>
+    <p>The file opens in TextEdit. It looks like this:</p>
+    <div class="json-block">
+      <div class="json-header"><span class="json-label">spotify-config.json</span></div>
+<pre class="json-code"><span class="json-punct">{</span>
+  <span class="json-key">"clientId"</span><span class="json-punct">:</span> <span class="json-str">"your-client-id"</span><span class="json-punct">,</span>
+  <span class="json-key">"redirectUri"</span><span class="json-punct">:</span> <span class="json-str">"http://127.0.0.1:8888/callback"</span>
+<span class="json-punct">}</span></pre>
+    </div>
+    <ol>
+      <li>Replace <strong>only</strong> the text <code>your-client-id</code> (between the quotes) with the Client ID from Step 5 — keep the quotation marks before and after</li>
+      <li>Leave <code>redirectUri</code> exactly as it is</li>
+      <li>Save with <kbd>⌘ S</kbd> and close TextEdit</li>
+    </ol>
+    <div class="tip">If TextEdit saved the file as Rich Text, switch to <strong>Format → Make Plain Text</strong> (<kbd>⌘⇧T</kbd>) before editing, then save again.</div>
+  </div>
+</div>
+
+<!-- Step 7 -->
+<div class="step" id="step-7">
+  <div class="step-header" onclick="toggleStep(7)">
+    <div class="checkbox" id="cb-7">✓</div>
+    <div class="step-meta">
+      <div class="step-number">Step 7</div>
+      <div class="step-title">Authenticate with Spotify</div>
+    </div>
+  </div>
+  <div class="step-body">
+    <p>Run this in Terminal:</p>
+    <div class="cmd-block">
+      <div class="cmd-header">
+        <span class="cmd-label">Terminal</span>
+        <button class="copy-btn" onclick="copyCmd(this, 'npm run auth')">Copy</button>
+      </div>
+<pre class="cmd-code">npm run auth</pre>
+    </div>
+    <ol>
+      <li>Your browser will open a Spotify authorization page automatically</li>
+      <li>Log in to Spotify if asked, then click <strong>Agree</strong> or <strong>Authorize</strong></li>
+      <li>The browser will show a blank or "localhost" page — that's normal, it worked</li>
+      <li>Back in Terminal you'll see: <code>Authentication completed successfully!</code></li>
+    </ol>
+    <div class="note"><strong>Browser didn't open?</strong> Terminal will print a URL starting with <code>https://accounts.spotify.com/</code> — copy it and paste it manually into Safari.</div>
+  </div>
+</div>
+
+<div class="section-divider">Claude Desktop</div>
+
+<!-- Step 8 -->
+<div class="step" id="step-8">
+  <div class="step-header" onclick="toggleStep(8)">
+    <div class="checkbox" id="cb-8">✓</div>
+    <div class="step-meta">
+      <div class="step-number">Step 8</div>
+      <div class="step-title">Install Claude Desktop</div>
+    </div>
+  </div>
+  <div class="step-body">
+    <p>Claude Desktop is the app you'll talk to — it will control Spotify on your behalf.</p>
+    <ol>
+      <li>Go to <strong>claude.ai/download</strong></li>
+      <li>Click <strong>Download for Mac</strong> — this always downloads the latest version</li>
+      <li>Open the downloaded <code>.dmg</code> file</li>
+      <li>Drag the Claude icon into the <strong>Applications</strong> folder</li>
+      <li>Open Claude from Applications and sign in (or create a free Anthropic account)</li>
+    </ol>
+    <div class="note">
+      <strong>Required:</strong> Turn off AI training data sharing — Spotify's terms require it.<br>
+      Go to <strong>Claude menu → Settings → Privacy</strong> and disable the data sharing / model training option.<br>
+      <em>(These steps were written for Claude Desktop as of April 2026 — if the UI looks slightly different, the option will still be in Settings → Privacy.)</em>
+    </div>
+  </div>
+</div>
+
+<!-- Step 9 -->
+<div class="step" id="step-9">
+  <div class="step-header" onclick="toggleStep(9)">
+    <div class="checkbox" id="cb-9">✓</div>
+    <div class="step-meta">
+      <div class="step-number">Step 9</div>
+      <div class="step-title">Find the path to the server</div>
+    </div>
+  </div>
+  <div class="step-body">
+    <p>Claude needs to know exactly where the server file is. Run this in Terminal:</p>
+    <div class="cmd-block">
+      <div class="cmd-header">
+        <span class="cmd-label">Terminal</span>
+        <button class="copy-btn" onclick="copyCmd(this, 'cd ~/Desktop/spotify-mcp\npwd')">Copy</button>
+      </div>
+<pre class="cmd-code">cd ~/Desktop/spotify-mcp
+pwd</pre>
+    </div>
+    <p>Terminal will print something like:</p>
+    <div class="cmd-block">
+      <div class="cmd-header"><span class="cmd-label">Example output</span></div>
+<pre class="cmd-code">/Users/yourname/Desktop/spotify-mcp</pre>
+    </div>
+    <p>Take that path and add <code>/build/index.js</code> to the end. For example:</p>
+    <div class="cmd-block">
+      <div class="cmd-header"><span class="cmd-label">Your full server path will look like this</span></div>
+<pre class="cmd-code">/Users/yourname/Desktop/spotify-mcp/build/index.js</pre>
+    </div>
+    <p>Write this down or keep it visible — you'll need it in the next step.</p>
+  </div>
+</div>
+
+<!-- Step 10 -->
+<div class="step" id="step-10">
+  <div class="step-header" onclick="toggleStep(10)">
+    <div class="checkbox" id="cb-10">✓</div>
+    <div class="step-meta">
+      <div class="step-number">Step 10</div>
+      <div class="step-title">Connect Claude Desktop to Spotify</div>
+    </div>
+  </div>
+  <div class="step-body">
+    <ol>
+      <li>Open Claude Desktop</li>
+      <li>In the menu bar at the top, click <strong>Claude → Settings</strong></li>
+      <li>Click <strong>Developer</strong>, then <strong>Edit Config</strong></li>
+      <li>A file called <code>claude_desktop_config.json</code> opens in TextEdit</li>
+      <li>
+        Look at the file — if it's <strong>empty or contains only <code>{}</code></strong>, select all (<kbd>⌘ A</kbd>) and replace the entire content with the block below.<br>
+        <strong>If the file already has other MCP servers listed</strong>, don't replace everything — instead add only the <code>"spotify": { … }</code> entry inside the existing <code>"mcpServers"</code> object.
+      </li>
+    </ol>
+    <div class="json-block">
+      <div class="json-header">
+        <span class="json-label">claude_desktop_config.json</span>
+        <button class="copy-btn" onclick="copyCmd(this, '{\n  \"mcpServers\": {\n    \"spotify\": {\n      \"command\": \"node\",\n      \"args\": [\"/Users/yourname/Desktop/spotify-mcp/build/index.js\"]\n    }\n  }\n}')">Copy</button>
+      </div>
+<pre class="json-code">{
+  "mcpServers": {
+    "spotify": {
+      "command": "node",
+      "args": ["/Users/yourname/Desktop/spotify-mcp/build/index.js"]
+    }
+  }
+}</pre>
+    </div>
+    <div class="note"><strong>Replace</strong> <code>/Users/yourname/Desktop/spotify-mcp/build/index.js</code> with the path you got in Step 9. The rest stays exactly as shown.</div>
+    <ol start="6">
+      <li>Save with <kbd>⌘ S</kbd> and close TextEdit</li>
+      <li>Quit Claude Desktop completely: <kbd>⌘ Q</kbd></li>
+      <li>Reopen Claude from Applications</li>
+    </ol>
+  </div>
+</div>
+
+<!-- Step 11 -->
+<div class="step" id="step-11">
+  <div class="step-header" onclick="toggleStep(11)">
+    <div class="checkbox" id="cb-11">✓</div>
+    <div class="step-meta">
+      <div class="step-number">Step 11</div>
+      <div class="step-title">Test it!</div>
+    </div>
+  </div>
+  <div class="step-body">
+    <ol>
+      <li>Open Spotify on your Mac, iPhone, or any device and start playing something (or just have it open)</li>
+      <li>Open Claude Desktop and start a new conversation</li>
+      <li>Type: <strong>What song is playing on Spotify right now?</strong></li>
+    </ol>
+    <div class="tip">Claude should respond with the current track name and artist. If it does — you're all set! 🎉</div>
+    <p>Try asking things like:</p>
+    <ul>
+      <li><em>"Play something by The Beatles"</em></li>
+      <li><em>"Create a playlist called Chill Evenings and add 10 relaxing tracks"</em></li>
+      <li><em>"What are my top tracks this month?"</em></li>
+    </ul>
+  </div>
+</div>
+
+<!-- Troubleshooting -->
+<div class="section-divider">Troubleshooting</div>
+<div class="step">
+  <div class="step-header">
+    <div style="flex-shrink:0;width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-size:18px;">🔧</div>
+    <div class="step-meta">
+      <div class="step-title" style="font-size:16px;">Something not working?</div>
+    </div>
+  </div>
+  <div class="step-body">
+    <table class="trouble-table">
+      <tr><th>Problem</th><th>Fix</th></tr>
+      <tr>
+        <td class="problem">node: command not found</td>
+        <td>Close Terminal and open it again after installing Node.js</td>
+      </tr>
+      <tr>
+        <td class="problem">npm run auth — browser doesn't open</td>
+        <td>Copy the URL printed in Terminal (starts with <code>https://accounts.spotify.com/</code>) and paste it into Safari</td>
+      </tr>
+      <tr>
+        <td class="problem">Claude doesn't know about Spotify</td>
+        <td>Check the path in <code>claude_desktop_config.json</code> has no typos and exactly matches what <code>pwd</code> printed. Make sure you fully quit Claude (<kbd>⌘ Q</kbd>) and relaunched it.</td>
+      </tr>
+      <tr>
+        <td class="problem">ENOENT spotify-config.json</td>
+        <td>Go back to Step 6 and run <code>cp spotify-config.example.json spotify-config.json</code> again</td>
+      </tr>
+      <tr>
+        <td class="problem">Error about "npm run build" failing</td>
+        <td>Make sure you're inside the <code>spotify-mcp</code> folder: run <code>cd ~/Desktop/spotify-mcp</code> first, then retry</td>
+      </tr>
+    </table>
+  </div>
+</div>
+
+<div class="done-banner" id="doneBanner">
+  <span class="big">🎉</span>
+  <h2>You're all set!</h2>
+  <p>Spotify is connected to Claude. Ask Claude to play something.</p>
+</div>
+
+</div>
+<script>
+const TOTAL = 11;
+
+function getState() {
+  try { return JSON.parse(localStorage.getItem('spotify-mcp-steps') || '{}'); }
+  catch { return {}; }
+}
+function saveState(state) { localStorage.setItem('spotify-mcp-steps', JSON.stringify(state)); }
+
+function updateProgress() {
+  const state = getState();
+  const done = Object.values(state).filter(Boolean).length;
+  document.getElementById('progressFill').style.width = Math.round(done / TOTAL * 100) + '%';
+  document.getElementById('progressLabel').textContent = done + ' of ' + TOTAL + ' steps completed';
+  const banner = document.getElementById('doneBanner');
+  if (done === TOTAL) banner.classList.add('visible');
+  else banner.classList.remove('visible');
+}
+
+function toggleStep(n) {
+  const state = getState();
+  state['step' + n] = !state['step' + n];
+  saveState(state);
+  document.getElementById('step-' + n).classList.toggle('done', !!state['step' + n]);
+  updateProgress();
+}
+
+function copyCmd(btn, text) {
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
+  });
+}
+
+(function () {
+  const state = getState();
+  for (let n = 1; n <= TOTAL; n++) {
+    if (state['step' + n]) {
+      const el = document.getElementById('step-' + n);
+      if (el) el.classList.add('done');
+    }
+  }
+  updateProgress();
+})();
+</script>
+</body>
+</html>
